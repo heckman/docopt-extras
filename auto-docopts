@@ -27,21 +27,88 @@ set -euo pipefail
 trap 'status=$?; ! ((status)) || echo "exit $status # for the enwrapping eval"' EXIT
 
 main(){
-	local help filename="${1-}"
-	shift ||
+	local filename="${1-}"
+	while
+		arg="${1-}"
+		shift
+	do
+		case "$arg" in
+		( -- ) filename="${1-}"; shift; break;;
+		( [!-]*) filename="$arg"; break;;
+		( -c|--config ) configpath+=("$1");;
+		( -e|--env ) envprefix="$1"; shift;;
+		( -* ) die "Unknown option: $arg" 64;;
+		esac
+	done
+
+	[[ -n "$filename" ]] ||
 		die "No file specified." 64
-	help="$(docopt_header "${filename}" 2>/dev/null)"  ||
+
+	raw_help="$(docopt_header "${filename}")" ||
 		die "Failed to read file '${filename}'" 66
-	docopts --help - --version - "${@}" <<<"$help"
+	# echo "$raw_help" >&2
+	# echo --- >&2
+	# <<<"$raw_help"  generate_default_code >&2
+	# echo --- >&2
+	<<<"$raw_help" expand_help_defaults |
+	docopts --help - --version - "${@}"
 }
 
-die(){
-	echo "autodocopts error: $1" >&2
-	"$GNU_AWK" -F '# ?' '$1{exit}/^#!/{next}{print $2}' "$0" >&2
-	exit 64
+# shellcheck disable=SC2016  # awk will be doing the expansion
+expand_help_defaults(){
+	"$GNU_AWK" \
+		-v IGNORECASE=1 \
+		-F'##' \
+'
+function default_string(value){
+	return("[default: "strip_quotes(value)"]")
+}
+# strips pair of either single or double quotes around string,
+# but only if there are no spaces in it
+function strip_quotes(str){
+	# match(str,/^("([^[:space:]]+)")$/,matches)
+	# match(str,/^("([^[:space:]]+)"|'\''([^[:space:]]+)'\'')$/,matches)
+	# return(matches[2]?matches[2]:matches[3]?matches[3]:str)
+	return str
+}
+$0=="----"{version=1}
+(version){print;next}
+!($2){print;next}
+{
+	match($2,/ def(ault)?:(.*)/,matches)
+	$2=(matches[0])?default_string(matches[2]):""
+	if($1$2~/[^[:space:]]/)print($1 $2)
+}
+'
 }
 
-# shellcheck disable=SC2016  # expansions are for awk, not bash
+# shellcheck disable=SC2016  # awk will be doing the expansion
+generate_default_code(){
+		"$GNU_AWK" \
+		-v IGNORECASE=1 \
+		-F'##' \
+'
+function print_last_options_default_function(){
+	if(!opt)return
+	printf("#setdefaults %s%s\n",opt,args)
+	args=""
+}
+$0=="----"{exit}
+match($0,/^[[:space:]]*(-([^[:space:]]))?(.*--([^[:space:]]+)[[:space:]])?/,matches){
+	next_opt=matches[4]?matches[4]:matches[2]?matches[2]:""
+	if(next_opt){
+		print_last_options_default_function()
+		opt=next_opt
+	}
+}
+$2{args=defs" "$2;}
+END{
+	print_last_options_default_function()
+}
+'
+}
+
+# shellcheck disable=SC2016  # awk will be doing the expansion
 docopt_header(){
 	# adjust spacing so that the opening ' is on a line ending with 1
 	# that will make it easier to locate error in the gawk code
@@ -52,16 +119,17 @@ docopt_header(){
 		-v LICENSE="${license-}" \
 		-v USAGE="${usage-}" \
 		-v IGNORECASE=1 \
-'
-function usage(){USAGE=USAGE substr($0,USAGE_INDENT)"\n"}
+		-F'##' \
+		-f <(cat <<'EOF'
 /^#!/{next}
 /^ *$/{if(USAGE_INDENT)exit}
-USAGE{if(USAGE_INDENT)usage();next}
-match($0,/^# *usage: *([^[:space:]]+)/,matches){
+!USAGE_INDENT && match($0,/^# *usage: *([^[:space:]]+)/,matches){
+	NAME=matches[1]
 	USAGE_INDENT=index($0,"u")
 	USAGE=""
-	usage()
-	NAME=matches[1]
+}
+USAGE_INDENT{
+	print(substr($0,USAGE_INDENT))
 	next
 }
 match($0,/#.*(copyright |\( ?c ?\) ?|copyright ?\( ?c ?\) ?) *(.*)$/,matches){
@@ -77,14 +145,21 @@ match($0,"^# *[^[:space:]]* *v((er)?sion)?:? ?(.*)$",matches){
 	next
 }
 END{
-	NAME=VERSION?NAME" v"VERSION:NAME
-	LICENSE=LICENSE?LICENSE" License":""
-	COPYRIGHT=COPYRIGHT?"Copyright "COPYRIGHT:""
-	COPYRIGHT=COPYRIGHT (COPYRIGHT&&LICENSE?", ":"") LICENSE
-	printf("%s----\n%s\n",USAGE,COPYRIGHT?NAME"\n"COPYRIGHT:NAME)
+	if(VERSION)NAME=NAME" v"VERSION
+	if(COPYRIGHT)COPYRIGHT="Copyright "COPYRIGHT
+	if(LICENSE)COPYRIGHT+=", License: "LICENSE
+	print("----")
+	print(NAME)
+	if(COPYRIGHT)print(COPYRIGHT)
 }
-'\
-	"$1"
+EOF
+) "$1"
+}
+
+die(){
+	echo "autodocopts error: $1" >&2
+	"$GNU_AWK" -F '# ?' '$1{exit}/^#!/{next}{print $2}' "$0" >&2
+	exit 64
 }
 
 main "$@"

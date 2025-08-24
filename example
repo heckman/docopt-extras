@@ -6,13 +6,19 @@
 #
 # Usage: example [options] <argv>...
 # Options:
-#   --verbose    Generate verbose messages. [ default: $ENV_V ]
-#   --help       Show help options.
-#   --version    Print program version.
-#   -a --all     Print all.
-#   -n           None
-#   --val VAL    Print a value. [default: 42]
+#   --val VAL     Print a value. ## default:'foo '
+#                 ## env:EX_VAL conf:VAL
+#   --force       Force thing
+#                 ## default:'false'
+#                 ## true:on false:off env:VERBOSE conf:VERBOSE
+#   -a --all      Print all.
+#   -n            None
+#   --hel.p        Show help options.
+#   --ve<rsi>on     Print program version.
 #
+
+##  --no-force    Be carefuel with the thing.
+
 # set -x
 
 eval "$(./auto-docopts "$0" -A OPTS : "$@")"
@@ -23,4 +29,3 @@ main(){
 }
 
 main "$@"
-
