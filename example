@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright 2025 Erik Heckman
+#
+# v0.1.0
+#
+# Usage: example [options] <argv>...
+# Options:
+#   --verbose    Generate verbose messages. [ default: $ENV_V ]
+#   --help       Show help options.
+#   --version    Print program version.
+#   -a --all     Print all.
+#   -n           None
+#   --val VAL    Print a value. [default: 42]
+#
+# set -x
+
+eval "$(./auto-docopts "$0" -A OPTS : "$@")"
+
+main(){
+	declare -p OPTS
+	echo "${@@A}"
+}
+
+main "$@"
+

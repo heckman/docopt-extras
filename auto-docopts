@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright 2025 Erik Heckman
+#
+#
+# auto-docopts  v0.1.0
+#
+# a wrapper for docopts
+# that generates settings from the header comment
+#
+#
+# Usage:  auto-docopts FILE [options] : [ARGUMENTS...]
+#
+# Parses header comment of FILE and calls docopts with the options
+#
+# Should be eval'd from a script like this, for example,
+# to put the options an an associative array named OPTS:
+#     eval "$(autodocopts $0 -A OPTS : "$@")"
+#
+
+set -euo pipefail
+# set -x
+
+: "${GNU_AWK:=gawk}" # uses match function with array parameter
+
+# shellcheck disable=SC2154 # don't understand why status is not set?
+trap 'status=$?; ! ((status)) || echo "exit $status # for the enwrapping eval"' EXIT
+
+main(){
+	local help filename="${1-}"
+	shift ||
+		die "No file specified." 64
+	help="$(docopt_header "${filename}" 2>/dev/null)"  ||
+		die "Failed to read file '${filename}'" 66
+	docopts --help - --version - "${@}" <<<"$help"
+}
+
+die(){
+	echo "autodocopts error: $1" >&2
+	"$GNU_AWK" -F '# ?' '$1{exit}/^#!/{next}{print $2}' "$0" >&2
+	exit 64
+}
+
+# shellcheck disable=SC2016  # expansions are for awk, not bash
+docopt_header(){
+	# adjust spacing so that the opening ' is on a line ending with 1
+	# that will make it easier to locate error in the gawk code
+	"$GNU_AWK" \
+		-v NAME="${name-}" \
+		-v VERSION="${version-}" \
+		-v COPYRIGHT="${copyright-}" \
+		-v LICENSE="${license-}" \
+		-v USAGE="${usage-}" \
+		-v IGNORECASE=1 \
+'
+function usage(){USAGE=USAGE substr($0,USAGE_INDENT)"\n"}
+/^#!/{next}
+/^ *$/{if(USAGE_INDENT)exit}
+USAGE{if(USAGE_INDENT)usage();next}
+match($0,/^# *usage: *([^[:space:]]+)/,matches){
+	USAGE_INDENT=index($0,"u")
+	USAGE=""
+	usage()
+	NAME=matches[1]
+	next
+}
+match($0,/#.*(copyright |\( ?c ?\) ?|copyright ?\( ?c ?\) ?) *(.*)$/,matches){
+	COPYRIGHT=matches[2]
+	next
+}
+match($0,/^#[[:space:]]*([^[:space:]]*)[[:space:]]*License(-Identifier)?:? *([^[:space:]]*)/,matches){
+	LICENSE=matches[3]?matches[3]:matches[1]
+	next
+}
+match($0,"^# *[^[:space:]]* *v((er)?sion)?:? ?(.*)$",matches){
+	VERSION=matches[3]
+	next
+}
+END{
+	NAME=VERSION?NAME" v"VERSION:NAME
+	LICENSE=LICENSE?LICENSE" License":""
+	COPYRIGHT=COPYRIGHT?"Copyright "COPYRIGHT:""
+	COPYRIGHT=COPYRIGHT (COPYRIGHT&&LICENSE?", ":"") LICENSE
+	printf("%s----\n%s\n",USAGE,COPYRIGHT?NAME"\n"COPYRIGHT:NAME)
+}
+'\
+	"$1"
+}
+
+main "$@"
