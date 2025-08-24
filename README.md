@@ -1,0 +1,2 @@
+# auto-docopts
+ls
