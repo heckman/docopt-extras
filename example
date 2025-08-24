@@ -5,13 +5,15 @@
 # v0.1.0
 #
 # Usage: example [options] <argv>...
+#   ## env-prefix:EXAMPLE_
+#   ## config-path:$XDG/example.conf:.example
 # Options:
 #   --val VAL     Print a value. ## default:'foo '
 #                 ## env:EX_VAL conf:VAL
-#   --force       Force thing
-#                 ## default:'false'
+#   --force       Force overwrite.
+#                 ## anti:'Do not force overwrite.' anti-flag:--no-force
 #                 ## true:on false:off env:VERBOSE conf:VERBOSE
-#   -a --all      Print all.
+#   -a, --'all'      Print all.
 #   -n            None
 #   --hel.p        Show help options.
 #   --ve<rsi>on     Print program version.
