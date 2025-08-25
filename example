@@ -5,25 +5,31 @@
 # v0.1.0
 #
 # Usage: example [options] <argv>...
-#   ## env-prefix:EXAMPLE_
-#   ## config-path:$XDG/example.conf:.example
 # Options:
 #   --val VAL     Print a value. ## default:'foo '
-#                 ## env:EX_VAL conf:VAL
+#                 ## env:EX_VAL config:VAL
+#   --foo FOO     Some foo ## config:FOO default:'bar'
 #   --force       Force overwrite.
-#                 ## anti:'Do not force overwrite.' anti-flag:--no-force
-#                 ## true:on false:off env:VERBOSE conf:VERBOSE
 #   -a, --'all'      Print all.
 #   -n            None
-#   --hel.p        Show help options.
-#   --ve<rsi>on     Print program version.
+#   --hel.p       Show help options.
+#   --ve<rsi>on   Print program version.
 #
+
+#                 ## anti:'Do noxt force overwrite.' anti-flag:--no-force
+#                 ## true:on false:off env:VERBOSE conf:VERBOSE
+
+#   ## env-prefix:EXAMPLE_
+#   ## config-path:$XDG/example.conf:.example
 
 ##  --no-force    Be carefuel with the thing.
 
 # set -x
 
-eval "$(./auto-docopts "$0" -A OPTS : "$@")"
+echo "$(./auto-docopts --defaults --print-only --config config/1.conf "$0" -A OPTS : "$@")"
+echo '--- doing eval ---'
+eval "$(./auto-docopts --defaults --config config/1.conf "$0" -A OPTS : "$@")"
+# eval "$(./auto-docopts "$0" -A OPTS : "$@")"
 
 main(){
 	declare -p OPTS

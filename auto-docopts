@@ -58,6 +58,12 @@
 #
 # This code is the last thing executed by gawk so there is no need to worry
 # about clobbering global variables, such as OFS.
+
+# use the docopts-defaults in the same directory as this script
+DOCOPT_DEFAULTS="${0%/*}/docopt-defaults"
+
+
+: "${GNU_AWK:=gawk}" # uses match function with array parameter
 PRINT_VERSION='
 function print_version(NAME, VERSION, COPYRIGHT, LICENSE){
 	OFS="\n"
@@ -72,22 +78,37 @@ function print_version(NAME, VERSION, COPYRIGHT, LICENSE){
 set -euo pipefail
 # set -x
 
-: "${GNU_AWK:=gawk}" # uses match function with array parameter
 
 # shellcheck disable=SC2154 # don't understand why status is not set?
 trap 'status=$?; ! ((status)) || echo "exit $status # for the enwrapping eval"' EXIT
 
 main(){
 	local arg filename="${1-}"
+	local defaults=false print_only=false delimeter='##'
+	local config=()
 	while
 		arg="${1-}"
 		shift
 	do
-		case "$arg" in ( [!-]*) filename="$arg"; break;;
-		( -- ) filename="${1-}"; shift; break;;
-		# todo: ( --config-path ) config_path="$1"; shift;;
-		# todo: ( --env-prefix ) env_prefix="$1"; shift;;
-		# todo: ( --delimiter ) delimiter="$1"; shift;;
+		case "$arg" in
+		( [!-]*)
+			filename="$arg"
+			break;;
+		( -- )
+			filename="${1-}"
+			shift || : # catch this later
+			break;;
+		( --defaults )
+			defaults=true;;
+		( --config )
+			config+=("$1")
+			shift;;
+		( --default-delimiter )
+			defaults=true
+			delimeter="$1"
+			shift || die "$arg requires an argument.";;
+		( --print-only )
+			print_only=true;;
 		# todo: ( --help ) help_exit;;
 		# todo: ( --version ) version_exit;;
 		( -* ) die "Unknown option: $arg" 64;;
@@ -97,116 +118,18 @@ main(){
 	[[ -n "$filename" ]] ||
 		die "No file specified." 64
 
-	raw_help="$(docopt_header "${filename}")" ||
+	help_version_text="$(get_help_version_text "${filename}")" ||
 		die "Failed to read file '${filename}'" 66
-	# { echo "$raw_help"; echo "--"; } >&2
-	print_default_functions
-	<<<"$raw_help"  print_default_function_calls
-	# echo --- >&2
-	<<<"$raw_help" expand_help_defaults |
-	docopts --help - --version - "${@}"
-}
 
-# shellcheck disable=SC2016  # awk will be doing the expansion
-expand_help_defaults(){
-	"$GNU_AWK" \
-		-v IGNORECASE=1 \
-		-F'##' \
-'
-function default_string(value){
-	return("[default: "strip_quotes(value)"]")
-}
-# strips pair of either single or double quotes around string,
-# but only if there are no spaces in it
-function strip_quotes(str){
-	match(str,/^("([^[:space:]]+)")$/,matches)
-	match(str,/^("([^[:space:]]+)"|'\''([^[:space:]]+)'\'')$/,matches)
-	return(matches[2]?matches[2]:matches[3]?matches[3]:str)
-	return str
-}
-$0=="----"{version=1}
-(version){print;next}
-!($2){print;next}
-{
-	match($2,/ def(ault)?:(.*)/,matches)
-	$2=(matches[0])?default_string(matches[2]):""
-	if($1$2~/[^[:space:]]/)print($1 $2)
-}
-'
-}
-
-# print_functions(){ sed -n "$(printf '/^%s()/,/^}/p;' "$@")" "$0"; }
-print_default_functions(){
-# 	print_functions set_option_default set_flag_default setup_defaults function_stub
-# }
-# shellcheck disable=SC2016  # this is for an eval
-echo '
-function_stub(){ echo "DEBUG: call to stubbed function: ${FUNCNAME[1]} ${*@Q}" >&2; }
-set_option_default(){ function_stub "$@"; }
-set_flag_default(){ function_stub "$@"; }
-setup_defaults(){ function_stub "$@"; }
-'
-}
-
-# shellcheck disable=SC2016  # awk will be doing the expansion
-print_default_function_calls(){
-		"$GNU_AWK" \
-		-v IGNORECASE=1 \
-		-F'##' \
-'
-function print_function(){
-	if(OPT){
-		# escape single quotes in OPT
-		gsub("'\''","'\'\\\\\'\''",OPT)
-		# wrap OPT in single quotes
-		printf("set_%s_default '\''%s'\'' %s\n",HAS_ARG?"option":"flag",OPT,DEFS)
-	} else if(DEFS){
-		printf("setup_defaults %s\n",DEFS)
-	}
-}
-function matched_option(opt,has_arg){
-	if(!opt){ printf("WARNING: matched option %s(%s) in: %s",opt,has_arg,$0) > "/dev/stderr"; return }
-	print_function()
-	OPT=opt; HAS_ARG=has_arg; DEFS=""
-	check_defs()
-}
-END{ print_function() }
-
-function check_defs(){
-	if($2)DEFS=DEFS" "$2
-	next
-}
-
-# end of usage
-$0=="----"{exit}
-
-# long option with value, with possible short option as well
-match($0,/^[[:space:]]*(-[^[:space:]]+[[:space:]][^[:space:],-]+(,|[[:space:]])[[:space:]]*)?--([^[:space:]]+)[[:space:]][^[:space:]]+/,matches){
-	matched_option(matches[3],1)
-	check_defs()
-}
-
-# short option with value
-match($0,/^[[:space:]]*-([^[:space:],]+)[[:space:]][^[:space:]]/,matches){
-	matched_option(matches[1],1)
-	check_defs()
-}
-
-# long flag, with possible short flag as well
-match($0,/^[[:space:]]*(-[^[:space:],]+(,|[[:space:]])[[:space:]]*)?--([^[:space:]]+)[[:space:]]( {2,}|[[:space:]]*$)/,matches){
-	matched_option(matches[3],0)
-	check_defs()
-}
-
-# short flag
-match($0,/^[[:space:]]*-([^[:space:]]+)([[:space:]]{2,}|[[:space:]]*$)/,matches){
-	matched_option(matches[1],0)
-	check_defs()
-}
-
-# check default definitions even if option not matched
-{ check_defs() }
-'
+	if $defaults && command -v "$DOCOPT_DEFAULTS" >/dev/null 2>&1
+	then
+		help_version_text="$("$DOCOPT_DEFAULTS" "${config[@]}" - <<<"$help_version_text" ||:)"
+	fi
+	if $print_only
+	then echo "$help_version_text"
+	else docopts --help - --version - "${@}" \
+		<<<"$help_version_text"
+	fi
 }
 
 # read help and usage information from the script specified in $1
@@ -215,7 +138,7 @@ match($0,/^[[:space:]]*-([^[:space:]]+)([[:space:]]{2,}|[[:space:]]*$)/,matches)
 # it does not parse any custom formatting
 #
 # shellcheck disable=SC2016  # awk will be doing the expansion
-docopt_header(){
+get_help_version_text(){
 	# adjust spacing so that the opening ' is on a line ending with 1
 	# that will make it easier to locate error in the gawk code
 	"$GNU_AWK" \
@@ -225,7 +148,6 @@ docopt_header(){
 		-v LICENSE="${license-}" \
 		-v USAGE="${usage-}" \
 		-v IGNORECASE=1 \
-		-F'##' \
 		-f <(cat <<'EOF'
 # skip shebangs
 /^#!/{next}
