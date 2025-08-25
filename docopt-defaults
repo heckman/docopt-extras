@@ -3,45 +3,34 @@
 # Copyright 2025 Erik Heckman
 #
 #
-# docopts-defaults  v0.1.0
+# docopts-defaults  v0.2.0
 #
-# Substitutes values from config files and environment variables
-# in to the defaults in the help-version-text as specified within it
-# by a custom extension to the standard docopts formatting.
+#
+# Substitutes defaults in docopts help-version text using values
+# fomr config files and environment variables.
+#
 #
 # Usage: docopts-defaults [config-file...] help-version-file
-#        docopts-defaults [config-file...] - <<<help-version-text
+#
+# Use - to read the help-version text from standard in.
 #
 #
+# Extension to docopts syntax:
 #
-# If no such extended formatting is present, docopts-defaults
-# will print the help-version text verbatim.
-
-# Custom formatting:
+# In addition to [default: VALUE], deocopts-defaults supports the
+# following settings for each option:
 #
-# Anything following the delimeter ## is considered a sequence of
-# directives for docopts-defaults. If the directives produce output
-# it will be appended to the line precreeding the delimeter. A line
-# without a delimeter will be printed verbatim. A line with a directive
-# that produces no output, and only contains spaces before the delimeter,
-# will not be printed.
+#   [config: KEY], [config-: KEY]:
+#               if KEY is defined in one of the config files, then
+#               use its last-defined value as the default.
 #
-# Directives:
+#   [env: VARNAME], [env-: VARNAME]
+#               If an environment variable with the name VARNAME
+#               exists, then use its value as the default.
+#               (Overrides default config value.)
 #
-# These set the default values in the modified help-version-text
-# printed to stdout for the option the appear within, i.e. before
-# another option definition begins. The directives can appear in any
-# order.
+# The versions with the - suffix will not appear in the help text.
 #
-#   default:VALUE       mandatory for all options that include a value
-#                       the string [ default:VALUE ] will be printed
-#                       in place of the directive sequence. VALUE
-#                       can be modified by the other directives.
-#   config:KEY          set the VALUE of the default to the value with
-#                       the matching KEY in the config files, if found.
-#   env:VARIABLE        set VALUE to the value the environment variable
-#                       VARIABLE, if set. This overrides any value set
-#                       by a config:KEY directive.
 #
 function die(reason, message, where){
 	switch (reason) {
@@ -58,7 +47,7 @@ function die(reason, message, where){
 		"\nIt should be one of 'env:', 'config:', or 'default:"
 		break
 	case "NO_DEFAULT":
-		message="Option '"OPT"' does not have a default value. "\
+		message="Option '"OPTION"' does not have a default value. "\
 		"All options that take an argument must have a default value."
 		break
 	default:
@@ -69,117 +58,96 @@ function die(reason, message, where){
 	printf("ERROR %s:%s\n    %s\n",where,$0,message) #> "/dev/stderr"
 	exit EXIT_CODE["reason"]?EXIT_CODE["reason"]:1
 }
-function is_truthy(value){
-	if(value~/^(|false|0)$/) return 1
-	else return 0
+function get_default(default){
+	return HAS_ARG?default:(default~FALSY)?"true":"false"
 }
-function get_default(  value){
-	# debug("CONFIG_KEY="CONFIG_KEY)
-	if (!HAS_DEFAULT && HAS_ARG) die("NO_DEFAULT")
-	if(ENV_VAR && ENV_VAR in ENVIRON)
-		value=ENVIRON[ENV_VAR]
-	else if (CONFIG_KEY && CONFIG_KEY in CONFIG)
-		value=CONFIG[CONFIG_KEY]
-	else
-		value=DEFAULT_VALUE
-	if(!HAS_ARG)
-		return(is_truthy(value)?"true":"false")
-	else if (value~/^".*"$|^'.*'$/) # unquote strings
-		return(substr(value,2,length(value)-2))
-	else return(value)
+function directive_replacement(source, pretext,  value){
+	if (source ~ HIDDEN_DIRECTIVE) return
+	value=\
+		(source == "default")?
+			get_default(DEFAULTS[SET_BY]):
+		(source == SET_BY)?\
+			DIRECTIVES[source]", overriding: "DEFAULTS["default"]:\
+		(source in DEFAULTS)?
+			value=DIRECTIVES[source]"="DEFAULTS[source]:\
+		DIRECTIVES[source]
+	# add line-wrapping here using "pretext" to generate indent
+	return "["source": "value"]"
+
 }
-function print_previous_option(  i,line){
-	line=$0
-	for (i in BUFFER) {
-		# debug("PRINTING BUFFER")
-		# debug("BUFFER["i"]="BUFFER[i])
-		$0=BUFFER[i]
-		# debug("$0="$0)
-		# debug("$1="$1)
-		# debug("$2="$2)
-		# debug("NF="NF)
-		if (NF<2) print($1"..")
-		else if ($2&&HAS_ARG)
-			print($1 "[default: "get_default()"]")
-		else if ($1~/[^[:space:]]/)
-			print($1"...")
+function print_buffer_line(line){
+	# only options process directives (for now)
+	if (OPTION && match(line,DIRECTIVE_REGEX,RARRAY)) {
+		line=directive_replacement(RARRAY[2],RARRAY[1])
+		line=RARRAY[1] line RARRAY[4]
+		if (line !~ UNBLANK) return
 	}
+	print(line)
+}
+function set_defaults(){
+	if (!("config" in DIRECTIVES)) {
+		DIRECTIVES["config"]=DIRECTIVES["config-"]
+	}
+	if (!("env" in DIRECTIVES)) {
+		DIRECTIVES["env"]=DIRECTIVES["env-"]
+	}
+	delete DEFAULTS
+	SET_BY="default"
+	DEFAULTS["default"]=\
+		("default" in DIRECTIVES)?DIRECTIVES["default"]:\
+		(!HAS_ARG)?false:die("NO_DEFAULT")
+	if (DIRECTIVES["config"] in CONFIG) {
+		DEFAULTS["config"]=CONFIG[DIRECTIVES["config"]]
+		SET_BY="config"
+	}
+	if (DIRECTIVES["env"] in ENVIRON) {
+		DEFAULTS["env"]=ENVIRON[DIRECTIVES["env"]]
+		SET_BY="env"
+	}
+}
+function flush_buffer(){
+	if (OPTION) set_defaults()
+	for (i in BUFFER) print_buffer_line(BUFFER[i])
 	delete BUFFER
 	BUFFER_LENGTH=0
-	$0=line
 }
-function save_option(option, has_arg,  line){
-	# debug("SAVE OPTION:"option)
-	print_previous_option()
-	OPTION=option
+function new_buffer(new_option, has_arg, i){
+	flush_buffer()
+	OPTION=new_option
 	HAS_ARG=has_arg
-	ENV_VAR=""
-	CONFIG_KEY=""
-	DEFAULT_VALUE="false" # default for flags
-	HAS_DEFAULT=0
+	delete DIRECTIVES
+	add_line_to_buffer()
 }
-# Sets the sources of the defaults
-# Prints a marker where the default value should be printed in the help text
-function parse_directives(directives_str,  directives, i, value, has_default){
-	# split into directive:value words, where value may be quoted,
-	# with either single or double-quotes.
-	# Escape characters area not supported, so a quoted string
-	# cannot contain a quote of the same type within it.
-	# print(directives_str)
-	# debug("directives_str="directives_str)
-	patsplit(directives_str,directives,/[a-z-]+:([^[:space:]]+|"[^"]*"|'[^']*')/)
-	for (i in directives) {
-		# debug("directives["i"]="directives[i])
-		match(directives[i],/:/)
-		value=substr(directives[i],RSTART+RLENGTH)
-		switch (substr(directives[i],1,RSTART-1)) {
-		case "env":
-			ENV_VAR=value
-			break
-		case "config":
-			CONFIG_KEY=value
-			break
-		case "default":
-			DEFAULT_VALUE=value
-			has_default=1
-			break
-		default:
-			# print(substr(directives[i],1,RSTART-1))
-			die("BAD_DIRECTIVE",directives[i])
-		}
+function add_line_to_buffer(){
+	BUFFER[++BUFFER_LENGTH]=$0
+	# only options process directives (for now)
+	if (OPTION && match($0,DIRECTIVE_REGEX,RARRAY)) {
+		DIRECTIVES[RARRAY[2]]=RARRAY[3]
 	}
-	if (has_default) {
-		HAS_DEFAULT=1 # global to keep track it has been set
-		# mark this location to print option default
-		return("PRINT_DEFAULT")
-	}
-}
-function buffer_line(){
-	# debug("$0="$0)
-	# debug("$1="$1)
-	# debug("$2="$2)
-	BUFFER[++BUFFER_LENGTH]=$1 FS parse_directives($2)
 	next
 }
-# function debug(message){ printf(">>> %s/%s %s:%s\n",FILENAME,FNR,message,$0) }
 function debug(message){ printf("%s:%s:%s\n",FILENAME,FNR,message) }
 BEGIN{
-	# this can be set in the command line as -v DELIMETER=FOO
-	FS=DELIMETER?DELIMETER:"##"
 	# sorts arrays by keys, as strings, ascending
-	PROCINFO["sorted_in"] = "@ind_str_asc"
+	PROCINFO["sorted_in"]="@ind_str_asc"
+	# matches [default: VALUE] etc
+	DIRECTIVE_REGEX="^(.*)\\[(default|config-?|env-?): (.*)]([^]]*)$"
+	UNBLANK="[^[:space:]]"
+	HIDDEN_DIRECTIVE="-$"
+	FALSY="^(|false|0)$"
+	CONFIG_LINE_REGEX="^[[:space:]]*([^[:space:]]*)[[:space:]]*=(.*)$"
 }
 BEGINFILE {
-	if (ERRNO) nextfile # this works in Gnu Awk
-	if (ARGV[ARGC-1]==FILENAME) READING_HELP_TEXT=1
+	if (ERRNO) nextfile # this is supposed to work in Gnu Awk
+	if (ARGV[ARGC-1]==FILENAME) HELP_VERSION_TEXT=1
 }
 
-!READING_HELP_TEXT {  # Still reading config files
-	# debug("READING CONGFIG")
+!HELP_VERSION_TEXT {
+	# still reading config files
 
 	if (/^[[:space:]]*(#|$)/)
 		{} # do nothing for commented or blank lines
-	else if (match($0,/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$/,RARRAY))
+	else if (match($0,CONFIG_LINE_REGEX,RARRAY))
 		CONFIG[RARRAY[1]]=RARRAY[2]
 	else
 		die("CONFIG",RARRAY[1]":"RARRAY[2])
@@ -188,57 +156,55 @@ BEGINFILE {
 
 
 (POST_OPTIONS_SECTION){
-	# debug("POST OPTIONS")
-	print
-	next
+	# stop processing
+	add_line_to_buffer()
 }
 (!OPTIONS_SECTION){
-	# debug("PRE OPTIONS")
+	# check for start of Options:
 	if(/^[[:space:]]*Options:/) OPTIONS_SECTION=1
-	print
-	next
+	add_line_to_buffer()
 }
 
-
-# ---- indicates help section is completed and
-# any insufficiently indented line not starting with - ends the options section
-# we're assuming a line indented 5 whitespace characters is suffifiently indented
-$0=="----"||/^[[:space:]]{0,4}[^[:space:]-]/{
-	print_previous_option()
+$0=="----"{
+	# end of help section
 	POST_OPTIONS_SECTION=1
-	# debug("JUST FINISHED OPTIONS")
-	print
-	next
+	POST_HELP_SECTION=1
+	new_buffer()
 }
 
-# {
-# 	debug("READING OPTIONS")
-# }
-
-# long option with value, with possible short option as well
 match($0,/^[[:space:]]*(-[^[:space:]]+[[:space:]][^[:space:],-]+(,|[[:space:]])[[:space:]]*)?--([^[:space:]]+)[[:space:]][^[:space:]]+/,RARRAY){
-	save_option(RARRAY[3],1)
-	buffer_line()
+	# long option with value, with possible short option as well
+	new_buffer(RARRAY[3],1)
 }
 
-# short option with value
 match($0,/^[[:space:]]*-([^[:space:],]+)[[:space:]][^[:space:]]/,RARRAY){
-	save_option(RARRAY[1],1)
-	buffer_line()
+	# short option with value
+	new_buffer(RARRAY[1],1)
 }
 
-# long flag, with possible short flag as well
 match($0,/^[[:space:]]*(-[^[:space:],]+(,|[[:space:]])[[:space:]]*)?--([^[:space:]]+)[[:space:]]( {2,}|[[:space:]]*$)/,RARRAY){
-	save_option(RARRAY[3],0)
-	buffer_line()
+	# long flag, with possible short flag as well
+	new_buffer(RARRAY[3],0)
 }
 
-# short flag
+
 match($0,/^[[:space:]]*-([^[:space:]]+)([[:space:]]{2,}|[[:space:]]*$)/,RARRAY){
-	save_option(RARRAY[1],0)
-	buffer_line()
+	# short flag
+	new_buffer(RARRAY[1],0)
 }
 
-# check default definitions even if option not matched
-{ buffer_line() }
+# Options: section ends on a blank line
+# or a non-option-defining line that is insufficiently intented
+# we're considering 4 whitespace characters an insufficent indent
+/^$|^[[:space:]]{0,4}[^[:space:]-]/{
+	# end of options section
+	POST_OPTIONS_SECTION=1
+	new_buffer()
+}
 
+{
+	# option description
+	add_line_to_buffer()
+}
+
+END{ flush_buffer() }

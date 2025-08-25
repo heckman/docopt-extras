@@ -1,49 +1,64 @@
 # Roadmap
 
-## Desirable features
+## Repository
 
-### Config file
+Perhaps docopts-defaults should be split off into its own repository.
+Alternatively, the repository could be renamed from _auto-docopts_ to
+_doctopt-extras_.
 
-- support for multi-line config values
+Note that the `docopt-defaults` utility is not limited to auto-docopts,
+and can be applied to any help text that applies the docopts syntax.
 
-### Command line
+## doctopt-defaults
 
-### Command line interface
+### Desired features
 
-#### Options
+#### Default sources for defaults
 
-- to specify a delimeter other than the default ##
-- to specify a default environment variable prefix
-- to specify auto-env and auto-conf mdoes. (see inline settings below)
+Settings for automattically setting default sources from config file keys
+matching the option name, and from environment variables with a given prexix.
 
-### Help-version text parser
+These could be implemented on the command line with options, such as `--prefix`
+and `auto-config`
 
-#### Inline global settings
+#### Global directives
 
-- specify config file(s)
-- specify environment variable prefix: an environment variable will be
-  associated with each option with the specified prefix. Set to "" to
-  enable the feature without a prefix.prefix
-- enable auto-conf mode, where every option has a config key of the same name.
+They command-line settings couild also be specified in the body of the help-text
+with some global directives such as `[env-: prefix]` and `[auto-config-: ]`, not
+associated with a particular option. The trailing '-' indicates that they are
+not printed, perhaps without the trailing '-', each option could get a comment,
+or perhaps one is added at the end of the help.
 
-The environment variable prefix and auto-config settings could be disabled for
-individual options be declaring blank values in a env: or config: directive.
-They could also be overridden with non-blank values.
+Another global-level directive could specify the config files, possibly as
+`[config-path: file1:file2:file3]`. Perhaps the path could support environment
+variables, or limited expansions such as`$HOME`, and `$XDG`, which could be
+a convient way to specify `${XDG_CONFIG_HOME-$HOME/.config}`.
 
-#### Notation for the source of default values
+#### Additonal option directives
 
-When a default is set by the environment or a config file,
-add a notation of which environment variable or config file it came from.
+##### Antiflags
 
-Possibly, add a notation for each option indicating if and how
-it can be set by an environment variable and config key.
+A setting for an option without an agument, such that if a default source
+sets it to true, the flag is replaced by another (which is false).
+The directive would have to specify new switches and description for
+the antiflag. Perhaps some defaults could be generated, i.e. using
+a --no- prefix for long options. Short options would be harder because
+docopts does not support + flags.
 
-Possibly, add a notation listing the possible locations of config files.
+It would probably be easist to implement by having both options appear
+as normal in the original help text, but one of them has the directive
+`[anti: FLAG]` to specify its opposite, and only the one that has a default
+of false is sent on to docopts. Perhaps `[anti-: FLAG]` would indicate
+that both flags are included in the help text regardless, in which
+case, one of them would be labelled with `[default]`, perhaps in
+the location of the `[anti: FLAG]` directve--which means both flags
+should have the directive for it to work. `FLAG` would be the key that
+is used in the options array produced by docopts, i.e. the long option
+without the `--` prefix, falling back to the short option without the `-`
+prefix for short options without long-option equivalents.
 
-#### Anti-flags
+### Not implementing
 
-If a default sets this flag to false, replace it with its opposite.
-Directives would need to define opposite short and long switches.
-For an option -x, --exclude, they could be, by default, +x --no-exclude,
-excpet that docopts does not support + flags, so another letter
-would need to be selected.
+#### Multi-line config values
+
+Doctopts does not support multi-line defaults, so this would be pointless.

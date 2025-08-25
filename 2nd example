@@ -6,13 +6,12 @@
 #
 # Usage: example [options] <argv>...
 # Options:
-#   --val VAL     Print a value. [default: foo ]
-#                 [env-: EX_VAL]
-#                 [config-: VAL]
-#   --foo FOO     Some foo [default: bar]
-#                 [config: FOO]
+#   --val VAL     Print a value. [default: you [dont't] \n"say"? ] [foo: bar]
+#                 [config: value]
+#                 [env: EX_VAL]
+#   --foo FOO     Some foo.  [default: bar]
 #   --force       Force overwrite.
-#   -a, --'all'   Print all.
+#   -a, --'all'      Print all.
 #   -n            None
 #   --hel.p       Show help options.
 #   --ve<rsi>on   Print program version.
@@ -27,20 +26,8 @@
 ##  --no-force    Be carefuel with the thing.
 
 # set -x
-echo
-echo '>>>>> original help-version text >>>>>'
-echo
-echo "$(./autodocopts --print-only "$0" -A OPTS : "$@")"
-echo
-echo
-echo '>>>>> modified help-version text >>>>>'
-echo
-echo "$(./autodocopts --defaults --print-only --config config/1.conf --config config/2.conf "$0" -A OPTS : "$@")"
-echo
-echo
-echo '>>>>> doing eval >>>>>'
-echo
-eval "$(./autodocopts --defaults --config config/1.conf "$0" -A OPTS : "$@")"
+
+eval "$(./auto-docopts "$0" -A OPTS : "$@")"
 # eval "$(./auto-docopts "$0" -A OPTS : "$@")"
 
 main(){
